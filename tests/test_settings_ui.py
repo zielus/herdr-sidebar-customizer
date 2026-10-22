@@ -286,7 +286,8 @@ class SettingsUITests(unittest.TestCase):
         self.assertEqual(keys['Spaces'], ['@row_shows', 'name_bold', 'spaces_gap', 'show_branch',
                                           'show_git', 'empty_git_row', '@git_icon'])
         self.assertEqual(keys['Agents'][:4], ['collect_details', 'agent_text', 'detail_hints', 'text_mode'])
-        self.assertEqual(keys['Agents'][-3:], ['show_machine', 'machine_position', 'agents_gap'])
+        self.assertEqual(keys['Agents'][-6:], ['show_machine', 'machine_position', 'agents_gap',
+                                               'agent_row_shows', 'group_agents', 'groups_gap'])
         self.assertEqual(keys['Tabs'], ['show_tab', 'tab_names', 'tab_name_format'])
         self.assertEqual(keys['Shortcuts'][-1], 'shortcut_pin_tab')
         saved = {key for fields in keys.values() for key in fields if not key.startswith('@')}
@@ -300,7 +301,8 @@ class SettingsUITests(unittest.TestCase):
         self.session.set('text_mode', 'custom')
         self.assertEqual([f.key for f in ui.active_fields(self.session, 1)],
                          ['collect_details', 'agent_text', 'detail_hints', 'text_mode',
-                          'text_template', 'show_machine', 'machine_position', 'agents_gap'])
+                          'text_template', 'show_machine', 'machine_position', 'agents_gap',
+                          'agent_row_shows', 'group_agents', 'groups_gap'])
         self.assertEqual(self.session.draft['text_template'], prefs.DEFAULT_TEMPLATE)
         self.session.set('text_template', '{model} · {remaining_pct} left')
         self.session.set('text_mode', 'automatic')

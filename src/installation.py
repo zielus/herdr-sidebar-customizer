@@ -12,7 +12,7 @@ import setup_claude
 import sidebar_settings as prefs
 from agent_info import CAPTURE_NAME, SOURCE as AGENT_SOURCE, TOKEN_NAMES, rpc
 from config_edit import owned_values, restore_owned
-from sidebar_state import SOURCE as ANIMATION_SOURCE
+from sidebar_state import GROUP_TOKENS, SOURCE as ANIMATION_SOURCE
 from space_colors import HUES, KEYS as COLOR_KEYS
 from space_rows import (
     BRANCH_TOKEN as ROWS_BRANCH_TOKEN,
@@ -306,10 +306,11 @@ def remove_captures():
 def clear_metadata(endpoint):
     """Clear each source's keys. Never report an agent lifecycle transition."""
     animation = dict.fromkeys('space_' + hue for hue, *_ in HUES)
+    grouping = dict.fromkeys(['group_' + hue for hue, *_ in HUES] + list(GROUP_TOKENS))
     for agent in rpc(endpoint, 'agent.list')['agents']:
         pane_id = agent['pane_id']
         rpc(endpoint, 'pane.report_metadata',
-            {'pane_id': pane_id, 'source': ANIMATION_SOURCE, 'tokens': animation})
+            {'pane_id': pane_id, 'source': ANIMATION_SOURCE, 'tokens': animation | grouping})
         rpc(endpoint, 'pane.report_metadata',
             {'pane_id': pane_id, 'source': AGENT_SOURCE, 'tokens': dict.fromkeys(TOKEN_NAMES)})
         fallback.clear(endpoint, pane_id)

@@ -63,6 +63,7 @@ DEFAULTS = {
     'agent_colour': 'theme', 'tab_colour': 'theme', 'machine_colour': 'agent',
     'branch_colour': 'theme', 'neutral_colour': 'theme',
     'show_tab': True, 'show_machine': True, 'machine_position': 'name', 'detail_hints': True,
+    'agent_row_shows': 'space', 'group_agents': False, 'groups_gap': 1,
     'tab_names': False, 'tab_name_format': '{topic}',
     'show_branch': True, 'show_git': True,
     'empty_git_row': 'blank', 'show_git_icon': False, 'git_icon': '41', 'spaces_gap': 0, 'agents_gap': 0,
@@ -97,6 +98,7 @@ def is_managed(command):
 
 CHOICES = {
     'machine_position': ('name', 'details'),
+    'agent_row_shows': ('space', 'agent', 'none'),
     'git_icon': GIT_ICONS,
     'empty_git_row': ('hide', 'blank', 'placeholder'),
     'animation': ANIMATIONS,
@@ -380,22 +382,32 @@ def git_row(settings):
 def details_row(settings, machine, fallback_text):
     tokens = list(machine) if settings['machine_position'] == 'details' else []
     if settings['agent_text']:
-        tokens.append(styled_token('$agent_info', settings['agent_colour']))
+        # Grouped details carry their own indent under the agent's name.
+        info = '$group_info' if settings['group_agents'] else '$agent_info'
+        tokens.append(styled_token(info, settings['agent_colour']))
     return tokens + fallback_text
 
 
 def render_rows(section, settings, block, native_tokens):
     """The TOML `rows` assignment for one sidebar section."""
+    from space_colors import style_block
     machine, fallback_text = native_tokens
+    grouped = section == 'agents' and settings['group_agents']
     if section == 'spaces':
         second = git_row(settings)
     else:
         second = details_row(settings, machine, fallback_text)
-    lines = ['rows = [', '  [', '    ' + block]
+    lines = ['rows = [']
+    if grouped:
+        # Only each space's first agent fills the heading; Herdr hides empty rows.
+        lines += ['  [', '    ' + style_block(settings, 'group'), '  ],']
+    lines += ['  [', '    ' + block]
     lines += ['    ' + token + ',' for token in first_row_extras(section, settings, machine)]
     lines.append('  ],')
     if second:
         lines.append('  [' + ', '.join(second) + '],')
+    if grouped and settings['groups_gap']:
+        lines.append('  [' + styled_token('$group_gap', 'theme') + '],')
     lines.append(']')
     return '\n'.join(lines)
 

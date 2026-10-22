@@ -15,6 +15,13 @@ SOURCE = PLUGIN + ".animation"
 # glyph selects the shade, so the name stays steady while the glyph animates.
 SHADE_MARKERS = {'dark': '', 'medium': '\u2063', 'light': '\u2063\u2063'}
 RENEW_SECONDS = 5
+# Herdr draws an entry's first row at column 1 and the rest at column 3, and
+# trims ordinary spaces. Two blank Braille cells line every agent row up under
+# a group heading, whether or not the heading is that agent's own first row.
+INDENT = '\u2800' * 2
+# Grouped agents: a heading on each space's first agent, details indented
+# under the name, and a blank row after each space's last agent.
+GROUP_TOKENS = ('group_info', 'group_gap')
 
 
 def shade_marker(shade):
@@ -22,16 +29,73 @@ def shade_marker(shade):
     return '\u2062' + SHADE_MARKERS[shade] + '\u2062'
 
 
-def label_tokens(status, now, name, color, settings=None):
+def label_tokens(status, now, name, color, settings=None, show_name=None, indent=''):
     from space_colors import HUES
     from sidebar_settings import DEFAULTS
     settings = settings or DEFAULTS
+    show_name = settings['space_names'] if show_name is None else show_name
     values = {'space_'+hue: None for hue,*_ in HUES}
     if color:
         hue,shade = color.rsplit('_', 1)
         glyph = symbol(status,now,settings) if settings['state_icons'] else ''
-        label = ' '.join(p for p in (glyph, name[:65] if settings['space_names'] else '') if p)
+        label = ' '.join(p for p in (glyph, name[:65] if show_name else '') if p)
+        label = indent + label if label else ''
         values['space_'+hue] = label[:1] + shade_marker(shade) + label[1:] if label else None
+    return values
+
+
+def heading_tokens(name, color, settings):
+    """A space's colored name above its group; the hue rules match the name tokens'."""
+    from space_colors import HUES
+    values = {'group_'+hue: None for hue,*_ in HUES}
+    if color and name:
+        hue,shade = color.rsplit('_', 1)
+        values['group_'+hue] = name[:1] + shade_marker(shade) + name[1:65]
+    return values
+
+
+def agent_row_name(agent, space, settings):
+    """What an agent row shows after its symbol: its space, its Herdr name, or nothing."""
+    from sidebar_settings import AGENT_NAMES
+    choice = settings['agent_row_shows']
+    if choice == 'space':
+        return space
+    if choice == 'agent':
+        kind = agent.get('agent') or ''
+        return (agent.get('name') or settings.get(kind + '_label')
+                or AGENT_NAMES.get(kind, kind.title()))
+    return ''
+
+
+def group_positions(agents, workspaces):
+    """{pane: (first, last, final group)} in the Agents list's space order."""
+    panes = {}
+    for agent in agents:
+        panes.setdefault(agent.get('workspace_id'), []).append(agent['pane_id'])
+    spaces = [w['workspace_id'] for w in workspaces if w['workspace_id'] in panes]
+    spaces += [space for space in panes if space not in spaces]
+    result = {}
+    for space in spaces:
+        group = panes[space]
+        for pane in group:
+            result[pane] = (pane == group[0], pane == group[-1], space == spaces[-1])
+    return result
+
+
+def group_tokens(agent, name, color, position, settings):
+    """Heading, indented details and trailing gap for one agent; all clear when off."""
+    from runtime import HERDR_TEXT_LIMIT
+    values = heading_tokens(None, None, settings) | dict.fromkeys(GROUP_TOKENS)
+    if not settings['group_agents']:
+        return values
+    first, last, final = position
+    if first:
+        values |= heading_tokens(name, color, settings)
+    info = (agent.get('tokens') or {}).get('agent_info')
+    if info:
+        values['group_info'] = (INDENT + info)[:HERDR_TEXT_LIMIT]
+    if last and not final and settings['groups_gap']:
+        values['group_gap'] = '⠀'
     return values
 
 
@@ -75,6 +139,7 @@ class Animator:
         workspaces = rpc(self.endpoint, "workspace.list")["workspaces"]
         names = {w['workspace_id']: w.get('label', '') for w in workspaces}
         colors = self.palette()
+        positions = group_positions(agents, workspaces)
         current = set()
         working = 0
         for kind, items, id_key in [("pane", agents, "pane_id"),
@@ -85,9 +150,21 @@ class Animator:
                 status = item.get("agent_status", "unknown")
                 working += status == "working" and settings['animate'] and settings['state_icons']
                 name = names.get(item.get('workspace_id'), '')
+                color = colors.get(item.get('workspace_id'))
                 # One styled value avoids Herdr's separator between icon/name.
                 # Keep below the API's 80-character cap, including invisible markers.
-                values = label_tokens(status, now, name, colors.get(item.get('workspace_id')), settings)
+                if kind == "pane":
+                    position = positions[item['pane_id']]
+                    grouped = settings['group_agents']
+                    show = settings['space_names'] if settings['agent_row_shows'] == 'space' else True
+                    # The heading is the first agent's own first row, so only
+                    # the other agents need the indent to line up under it.
+                    indent = INDENT if grouped and not position[0] else ''
+                    values = label_tokens(status, now, agent_row_name(item, name, settings), color,
+                                          settings, show_name=show, indent=indent)
+                    values |= group_tokens(item, name, color, position, settings)
+                else:
+                    values = label_tokens(status, now, name, color, settings)
                 previous = self.previous.get(key)
                 if previous and previous[0] == values and now-previous[1] < RENEW_SECONDS:
                     continue

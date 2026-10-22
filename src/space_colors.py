@@ -36,14 +36,20 @@ LEGACY = {"rosewater": "red_light", "flamingo": "rose_light", "pink": "magenta_l
 # These markers are already written into users' config.toml; keep the spelling.
 STYLE_BEGIN = "# BEGIN herdr-sidebar-customizer space colours"
 STYLE_END = "# END herdr-sidebar-customizer space colours"
+GROUP_BEGIN = "# BEGIN herdr-sidebar-customizer group headings"
+GROUP_END = "# END herdr-sidebar-customizer group headings"
 
 
-def style_block(settings=None):
-    """Static per-hue rules keep all three shades steady across animation frames."""
+def style_block(settings=None, token="space"):
+    """Static per-hue rules keep all three shades steady across animation frames.
+
+    `token` "group" styles the group headings with the same colors as names.
+    """
     from sidebar_state import shade_marker
     from sidebar_settings import DEFAULTS
     settings = settings or DEFAULTS
-    lines = [STYLE_BEGIN]
+    begin, end = (STYLE_BEGIN, STYLE_END) if token == "space" else (GROUP_BEGIN, GROUP_END)
+    lines = [begin]
     for hue, dark, medium, light in HUES:
         rules = []
         for shade, color in [("dark", dark), ("medium", medium), ("light", light)]:
@@ -53,11 +59,11 @@ def style_block(settings=None):
                 rules.append('{ contains = ' + json.dumps(shade_marker(shade))
                              + ', fg = "' + color + '" }')
         fg = medium if settings['space_colours'] else settings['neutral_colour']
-        style = '    { token = "$space_' + hue + '", bold = ' + str(settings['name_bold']).lower()
+        style = '    { token = "$' + token + '_' + hue + '", bold = ' + str(settings['name_bold']).lower()
         if fg != 'theme':
             style += ', fg = "' + fg + '"'
         lines.append(style + ', dim = false, rules = [' + ', '.join(rules) + '] },')
-    lines.append("    " + STYLE_END)
+    lines.append("    " + end)
     return "\n".join(lines)
 
 

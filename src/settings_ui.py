@@ -48,6 +48,7 @@ CHOICE_LABELS = {
                     'custom': 'Custom'},
     'empty_git_row': {'hide': 'Shorter row', 'blank': 'Blank line', 'placeholder': 'Explain why'},
     'machine_position': {'name': 'After space name', 'details': 'In details row'},
+    'agent_row_shows': {'space': 'Space name', 'agent': 'Agent name', 'none': 'Nothing'},
     'text_mode': {'automatic': 'Pick fields', 'custom': 'Write a template'},
     'default_shade': {'dark': 'Dark', 'medium': 'Medium', 'light': 'Light'},
 }
@@ -151,6 +152,13 @@ SECTIONS = [
               'After the space name on the first row, or leading the details row.'),
         Field('agents_gap', 'Row spacing', GAPS,
               'Spaced adds a blank row between agents. Spaces has its own setting.'),
+        Heading('GROUPING'),
+        Field('agent_row_shows', 'Agent row shows', tuple(CHOICE_LABELS['agent_row_shows']),
+              'What follows the symbol on each agent row. Agent name is the name from '
+              'herdr agent rename, else the agent type.'),
+        Field('group_agents', 'Group by space', ON_OFF,
+              "Show each space's name once, above its agents. Needs Herdr's grouped order."),
+        Field('groups_gap', 'Group spacing', GAPS, 'Spaced adds a blank row after each group.'),
     ]),
     Section('Tabs', [
         Field('show_tab', 'Show tab name', ON_OFF, 'Show the tab name after the space in the Agents list.'),
@@ -235,6 +243,8 @@ def inactive_reason(session, key):
         return 'Inactive: turn on Collect agent details.'
     if key == 'machine_position' and not draft['show_machine']:
         return 'Inactive: turn on Machine labels.'
+    if key == 'groups_gap' and not draft['group_agents']:
+        return 'Inactive: turn on Group by space.'
     if key == 'machine_colour' and not draft['show_machine']:
         return 'Inactive: turn on Machine labels on Agents.'
     if key in DETAILS_ROW_DEPENDENTS and not draft['agent_text']:
@@ -634,10 +644,12 @@ def preview_rows(session, kind, now):
     """Sample rows for the 'spaces' or 'agents' list, as lists of (text, fg, bold)."""
     draft = session.draft
     sample_rows = space_sample_rows if kind == 'spaces' else agent_sample_rows
+    # Each sample is its own space, so grouped samples are separate groups.
+    group_gap = draft['groups_gap'] if kind == 'agents' and draft['group_agents'] else 0
     rows = []
     for index, sample in enumerate(preview_samples(session)):
         if index:
-            rows.extend([] for _ in range(draft[kind + '_gap']))
+            rows.extend([] for _ in range(draft[kind + '_gap'] + group_gap))
         rows.extend(sample_rows(draft, sample, now))
     return rows
 
@@ -646,9 +658,10 @@ def name_color(draft, sample_color):
     return PALETTE_FOREGROUNDS[sample_color] if draft['space_colours'] else draft['neutral_colour']
 
 
-def name_row(draft, sample, now):
+def name_row(draft, sample, now, show_name=None):
     glyph = symbol(sample.status, now, draft) if draft['state_icons'] else ''
-    name = sample.name if draft['space_names'] else ''
+    show_name = draft['space_names'] if show_name is None else show_name
+    name = sample.name if show_name else ''
     label = ' '.join(part for part in (glyph, name) if part)
     return [(label, name_color(draft, sample.color), draft['name_bold'])] if label else []
 
@@ -685,10 +698,31 @@ def git_preview_row(draft, branch):
     return row
 
 
+# Names the samples might be given with herdr agent rename.
+SAMPLE_HANDLES = {'claude': 'builder', 'codex': 'reviewer'}
+GROUP_INDENT = '  '
+
+
+def agent_name_row(draft, sample, now):
+    """The sample's first row: its symbol, then what Agent row shows names."""
+    choice = draft['agent_row_shows']
+    if choice == 'space':
+        return name_row(draft, sample, now)
+    name = SAMPLE_HANDLES.get(sample.agent, '') if choice == 'agent' else ''
+    return name_row(draft, sample._replace(name=name), now, show_name=True)
+
+
+def grouped_rows(draft, sample, rows):
+    """The space's heading over its agent's rows, indented as Herdr lines them up."""
+    heading = [(sample.name, name_color(draft, sample.color), draft['name_bold'])]
+    indented = [[(GROUP_INDENT + row[0][0], *row[0][1:]), *row[1:]] if row else row for row in rows]
+    return [heading, *indented]
+
+
 def agent_sample_rows(draft, sample, now):
     remote = sample.remote and draft['show_machine']
     machine_color = settings.machine_colour(draft)
-    title = name_row(draft, sample, now)
+    title = agent_name_row(draft, sample, now)
     if remote and draft['machine_position'] == 'name':
         append_segment(title, SAMPLE_MACHINE, machine_color, bold=True)
     if draft['show_tab']:
@@ -703,7 +737,7 @@ def agent_sample_rows(draft, sample, now):
             append_segment(details, info, draft['agent_colour'])
     if details:
         rows.append(details)
-    return rows
+    return grouped_rows(draft, sample, rows) if draft['group_agents'] else rows
 
 
 def sample_agent_info(draft, sample):
@@ -725,9 +759,10 @@ PREVIEW_PAIRS_PER_ROW = 4
 FIELD_PAIRS = 60
 SWATCH_PAIRS = 80
 # Each list has a heading and at most five rows (two samples, two rows each and
-# a gap), with a blank row between the lists. Reserving the full height keeps
-# the form still while settings change the sample rows.
-PREVIEW_HEIGHT = 13
+# a gap); grouped agents add a heading per sample and a group gap, eight rows.
+# A blank row separates the lists. Reserving the full height keeps the form
+# still while settings change the sample rows.
+PREVIEW_HEIGHT = 16
 
 
 def color_attr(fg, pair):
