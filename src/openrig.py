@@ -21,6 +21,8 @@ KINDS = {"claude-code": "claude", "codex": "codex"}
 TIMEOUT = 1
 # A seat's session changes only on relaunch or handover; context changes slowly.
 NODES_SECONDS = 10
+# What a seat is working on: its newest item still being worked or waiting.
+QUEUE_STATES = "in-progress,blocked"
 # A tile's attach target never changes while its process lives.
 PANE_SECONDS = 30
 # Without a daemon, a refused connection is not retried every sync.
@@ -107,6 +109,7 @@ class Bridge:
         self.url = daemon_url() if url is None else url
         self.panes = {}  # pane -> (attached session or None, checked at)
         self.nodes = {}  # rig name -> ({session name: node}, fetched at)
+        self.items, self.items_at = [], -math.inf
         self.down_until = -math.inf
 
     def seat(self, pane):
@@ -145,6 +148,26 @@ class Bridge:
                  if isinstance(node.get("canonicalSessionName"), str)}
         self.nodes[rig] = (found, now)
         return found
+
+    def task(self, session):
+        """The summary of the newest in-progress or blocked queue item for a seat, or None."""
+        items = [item for item in self.queue() if item.get("destinationSession") == session
+                 and isinstance(item.get("summary"), str) and item["summary"].strip()]
+        newest = max(items, key=lambda item: str(item.get("tsUpdated") or ""), default=None)
+        return newest["summary"].strip() if newest else None
+
+    def queue(self):
+        now = self.clock()
+        if self.url is None or now - self.items_at < NODES_SECONDS or now < self.down_until:
+            return self.items
+        try:
+            body = self.fetch(self.url + "/api/queue/list?state=" + QUEUE_STATES)
+        except (OSError, ValueError, TypeError):
+            self.down_until = now + BACKOFF_SECONDS
+            return self.items
+        self.items = [item for item in body if isinstance(item, dict)] if isinstance(body, list) else []
+        self.items_at = now
+        return self.items
 
     def forget(self, live_panes):
         self.panes = {pane: value for pane, value in self.panes.items() if pane in live_panes}

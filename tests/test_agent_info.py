@@ -106,7 +106,7 @@ class MetadataTests(unittest.TestCase):
         self.assertEqual(values["context_used"], "50k")
         self.assertEqual(values["context_left"], "150k")
         self.assertEqual(values["context_left_pct"], "75%")
-        self.assertEqual(len(values), 15)
+        self.assertEqual(len(values), 16)
 
     def test_combined_agent_label_uses_used_percent_and_reported_capacity(self):
         observation = {"model": "Opus 5 (1M context)", "model_id": "claude-opus-5",

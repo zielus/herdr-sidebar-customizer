@@ -49,7 +49,7 @@ SUPPORTED = {"claude", "codex", "opencode", "pi", "omp"}
 TOKEN_NAMES = ("model", "model_id", "effort", "model_effort", "context",
                "context_used", "context_left", "context_window",
                "context_used_pct", "context_left_pct", "context_compact", "agent_info",
-               "claude_icon", "codex_icon", "model_context")
+               "claude_icon", "codex_icon", "model_context", "agent_work")
 # Transcript files of known sessions move rarely; walk for them slowly.
 DISCOVERY_SECONDS = 30
 # A new session's transcript usually appears within seconds, so walk every poll
@@ -157,6 +157,7 @@ def tokens(observation, agent="", settings=None):
         result[agent + "_icon"] = {"claude": "\uec82", "codex": "\uec81"}[agent]
     result["model_context"] = " · ".join(part for part in
         (result["model_effort"], result["context_compact"]) if part) or None
+    result["agent_work"] = text(observation.get("work")) or None
     from sidebar_settings import DEFAULTS, agent_label
     result["agent_info"] = agent_label(result, agent, settings or DEFAULTS)
     return result
@@ -223,13 +224,15 @@ class SessionReader:
     def __init__(self, path, agent, session):
         self.path, self.agent, self.session = path, agent, session
         self.position, self.inode, self.observation = 0, None, {}
+        # Claude's titles outlive each turn's observation: a /rename one, then its own.
+        self.titles = {}
 
     def update(self):
         current = self.path.stat()
         if not stat.S_ISREG(current.st_mode):
             return {}
         if current.st_ino != self.inode or current.st_size < self.position:
-            self.position, self.observation = 0, {}
+            self.position, self.observation, self.titles = 0, {}, {}
             self.inode = current.st_ino
         with self.path.open("rb") as handle:
             if not self.owns_file(handle):
@@ -255,7 +258,8 @@ class SessionReader:
                     self.apply(json.loads(line))
                 except (ValueError, TypeError, AttributeError):
                     continue
-        return dict(self.observation)
+        title = self.titles.get("custom") or self.titles.get("ai")
+        return dict(self.observation, title=title) if title else dict(self.observation)
 
     def owns_file(self, handle):
         """Whether the file belongs to this session; Codex proves it with a session_meta header."""
@@ -278,6 +282,9 @@ class SessionReader:
     def apply_claude(self, entry):
         if entry.get("sessionId", entry.get("session_id")) != self.session or entry.get("isSidechain"):
             return
+        for kind, key in (("custom", "customTitle"), ("ai", "aiTitle")):
+            if entry.get("type") == kind + "-title" and text(entry.get(key)):
+                self.titles[kind] = text(entry[key])
         if entry.get("type") != "assistant":
             return
         msg = entry.get("message") or {}
@@ -338,6 +345,19 @@ def merge_statusline(transcript, captured):
     if transcript.get("effort"):
         merged["effort"] = transcript["effort"]
     return merged
+
+
+def thread_names(raw):
+    """{thread ID: name} from Codex's session index; a thread's latest line wins."""
+    names = {}
+    for line in raw.splitlines():
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(entry, dict) and isinstance(entry.get("id"), str):
+            names[entry["id"]] = text(entry.get("thread_name"))
+    return names
 
 
 def has_session(agent):
@@ -422,8 +442,10 @@ class Collector:
         self.pi = pi_sessions.Reader()
         import openrig
         self.openrig = openrig.Bridge(endpoint, rpc)
-        self.openrig_context = {}
+        self.openrig_context, self.openrig_nodes = {}, {}
         codex_home = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex")))
+        from filecache import StampCache
+        self.codex_titles = StampCache(codex_home / "session_index.jsonl", thread_names, {})
         self.transcript_roots = [("codex", codex_home / "sessions"),
                                  ("claude", settings_path().parent / "projects")]
 
@@ -468,7 +490,7 @@ class Collector:
     def bridge(self, agents):
         """Give agents that OpenRig runs the session and context its daemon knows."""
         import openrig
-        self.openrig_context = {}
+        self.openrig_context, self.openrig_nodes = {}, {}
         self.openrig.forget({agent["pane_id"] for agent in agents})
         result = []
         for agent in agents:
@@ -479,6 +501,7 @@ class Collector:
                 if session:
                     agent = dict(agent, agent_session=session)
                     self.openrig_context[agent["pane_id"]] = openrig.context_reading(node)
+                    self.openrig_nodes[agent["pane_id"]] = node
             result.append(agent)
         return result
 
@@ -571,10 +594,27 @@ class Collector:
     def describe(self, kind, ref, pane, settings, tally):
         """Tokens for one agent; a malformed session source blanks only its own pane."""
         try:
-            return tokens(self.observe(kind, ref, pane), kind, settings)
+            observation = self.observe(kind, ref, pane)
+            work = self.work(kind, ref, pane, observation)
+            return tokens(dict(observation, work=work), kind, settings)
         except Exception as error:  # Recorded in status.json, so a code error stays visible.
             tally.observe_errors[kind] = type(error).__name__
             return tokens({}, kind, settings)
+
+    def work(self, kind, ref, pane, observation):
+        """What the agent works on: its OpenRig task, else its session's own title."""
+        from runtime import HERDR_TEXT_LIMIT
+        node = self.openrig_nodes.get(pane)
+        task = self.openrig.task(node.get("canonicalSessionName")) if node else None
+        if kind == "claude":
+            title = observation.get("title")
+        else:
+            title = self.codex_titles.load().get(ref) if kind == "codex" else None
+        # OpenRig titles each Claude seat after the seat itself, which says nothing new.
+        if node and title == node.get("canonicalSessionName"):
+            title = None
+        found = task or title
+        return found[:HERDR_TEXT_LIMIT] if found else None
 
     def observe(self, kind, ref, pane):
         import pi_sessions
@@ -585,7 +625,11 @@ class Collector:
         observation = self.read_transcript(kind, ref)
         if kind == "claude":
             captured = self.captured(ref, pane)
+            # The status line knows nothing of titles, so the transcript's survives the merge.
+            title = observation.get("title")
             observation = merge_statusline(observation, captured)
+            if title:
+                observation = dict(observation, title=title)
             # An OpenRig seat runs its own status line, so its daemon reports the context.
             reading = None if captured else self.openrig_context.get(pane)
             if reading:

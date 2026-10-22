@@ -133,6 +133,8 @@ SECTIONS = [
         Field('text_mode', 'Details text', tuple(CHOICE_LABELS['text_mode']),
               'Pick fields uses the switches below; Write a template gives full control. '
               'Each keeps its own settings.'),
+        Field('show_task', 'Task', ON_OFF,
+              "What the agent works on, first in the row: its OpenRig task, else its session's title."),
         Field('show_agent', 'Agent name', ON_OFF, 'Show the agent name, as set in Agent names.'),
         Field('show_model', 'Model', ON_OFF, 'Show the model reported by the session.'),
         Field('show_effort', 'Reasoning effort', ON_OFF, 'Unknown effort is left out.'),
@@ -214,7 +216,7 @@ SECTIONS = [
 ]
 # Pages whose settings change the sample rows; the others hide the previews.
 PREVIEW_PAGES = ('Spaces', 'Agents', 'Tabs', 'Colors', 'Motion & symbols')
-AUTOMATIC_ONLY = {'show_agent', 'show_model', 'show_effort', '@context', 'show_capacity',
+AUTOMATIC_ONLY = {'show_task', 'show_agent', 'show_model', 'show_effort', '@context', 'show_capacity',
                   '@agent_names'}
 # These only shape the details row, so they mean nothing while it is hidden.
 DETAILS_ROW_DEPENDENTS = AUTOMATIC_ONLY | {'detail_hints', 'text_mode', 'text_template'}
@@ -601,6 +603,7 @@ def template_help(width):
         '{capacity}      Context window: 1M',
         '{used_pct}      Percentage used: 25%',
         '{remaining_pct} Percentage remaining: 75%',
+        "{task}          What it works on: its OpenRig task, else its session's title",
         '',
         'Example: {agent} {model} · {effort} · {context}',
         'Remaining: {model} · {remaining_pct} left',
@@ -698,6 +701,8 @@ def git_preview_row(draft, branch):
     return row
 
 
+# What the samples might be working on, for the details row's Task.
+SAMPLE_WORK = {'claude': 'Add search filters', 'codex': 'Review the filters'}
 # Names the samples might be given with herdr agent rename.
 SAMPLE_HANDLES = {'claude': 'builder', 'codex': 'reviewer'}
 GROUP_INDENT = '  '
@@ -741,7 +746,7 @@ def agent_sample_rows(draft, sample, now):
 
 
 def sample_agent_info(draft, sample):
-    observation = {'model': sample.model, 'effort': 'medium',
+    observation = {'model': sample.model, 'effort': 'medium', 'work': SAMPLE_WORK.get(sample.agent),
                    'context': {'used': 250000, 'window': 1000000, 'percent': 25}}
     try:
         settings.validate(draft)

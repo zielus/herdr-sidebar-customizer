@@ -55,7 +55,7 @@ AGENT_NAMES = {'opencode': 'OpenCode', 'pi': 'pi', 'omp': 'omp'}
 DEFAULTS = {
     'animation': '01', 'speed': 1.0, 'animate': True, 'state_icons': True,
     'space_names': True, 'space_colours': True, 'name_bold': True,
-    'collect_details': False, 'agent_text': True, 'show_agent': True, 'show_model': True,
+    'collect_details': False, 'agent_text': True, 'show_task': False, 'show_agent': True, 'show_model': True,
     'show_effort': True, 'show_context': True, 'show_capacity': True,
     'context_mode': 'used', 'claude_label': 'Claude', 'codex_label': 'Codex',
     'opencode_label': 'OpenCode', 'pi_label': 'pi', 'omp_label': 'omp',
@@ -83,7 +83,7 @@ SHORTCUTS = {
 # this plugin's own description is managed, so Apply leaves theirs alone.
 DESCRIBED_ONLY = {PLUGIN + '.pin-tab': SHORTCUTS['shortcut_pin_tab'][1]}
 FIELDS = {'agent', 'model', 'effort', 'context', 'used', 'remaining', 'capacity',
-          'used_pct', 'remaining_pct'}
+          'used_pct', 'remaining_pct', 'task'}
 DEFAULT_TEMPLATE = '{agent} {model} · {effort} · {context}'
 MANAGED_COMMANDS = frozenset(PLUGIN + '.' + action for action, _ in SHORTCUTS.values())
 
@@ -266,6 +266,7 @@ def custom_label(values, agent, template):
         'used_pct': values.get('context_used_pct'),
         'remaining_pct': values.get('context_left_pct'),
         'capacity': context_capacity(values),
+        'task': values.get('agent_work'),
     }
     return render_template(template, mapping)
 
@@ -278,7 +279,9 @@ def automatic_label(values, agent, settings):
     if settings['show_context']:
         context = context_text(values, settings['context_mode'] == 'remaining', settings['show_capacity'])
     first = ' '.join(part for part in (harness, model) if part)
-    return ' · '.join(part for part in (first, effort, context) if part)
+    # The task leads, so a narrow sidebar cuts the details rather than the work.
+    task = values.get('agent_work') if settings['show_task'] else ''
+    return ' · '.join(part for part in (task, first, effort, context) if part)
 
 
 def agent_label(values, agent, settings):

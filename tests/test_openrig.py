@@ -18,10 +18,12 @@ def tile(session, pid=7):
     return {"process_info": {"foreground_processes": [{"pid": pid, "argv": argv}]}}
 
 
-def daemon(rigs=RIGS, nodes=NODES):
+def daemon(rigs=RIGS, nodes=NODES, items=()):
     def fetch(url):
         if url.endswith("/api/ps"):
             return rigs
+        if "/api/queue/list?state=" in url:
+            return list(items)
         if url.endswith("/api/rigs/01RIG/nodes"):
             return nodes
         raise AssertionError(url)
@@ -116,6 +118,58 @@ class CollectorBridgeTests(IsolatedTestCase):
         self.assertEqual(reports["w1:p5"]["agent_info"], "Claude Opus 5.5 · 7%/1M")
         self.assertEqual(status["missing_session"], {})
         self.assertEqual(status["missing_context"], 0)
+
+    def test_work_is_the_seats_task_else_its_own_title(self):
+        items = [{"destinationSession": "dev-build@boxbox", "summary": "Old task", "tsUpdated": "2026-10-22T01:00:00Z"},
+                 {"destinationSession": "dev-build@boxbox", "summary": " Add filters ", "tsUpdated": "2026-10-22T02:00:00Z"},
+                 {"destinationSession": "dev-qa@boxbox", "summary": "Not mine", "tsUpdated": "2026-10-22T03:00:00Z"}]
+        collector = self.collector()
+        collector.openrig = openrig.Bridge("sock", Mock(return_value=tile("dev-build@boxbox")),
+                                           fetch=daemon(items=items), url=openrig.DEFAULT_URL)
+        transcript = self.home / "transcript.jsonl"
+        lines = [{"type": "custom-title", "customTitle": "dev-build@boxbox", "sessionId": CLAUDE_TOKEN},
+                 {"type": "assistant", "sessionId": CLAUDE_TOKEN, "message": {"model": "claude-opus-5-5"}}]
+        transcript.write_text("".join(json.dumps(line) + "\n" for line in lines))
+        collector.discover = lambda wanted: collector.paths.update({CLAUDE_TOKEN: transcript})
+        agents = [{"pane_id": "w1:p5", "agent": "claude"}]
+        status, reports, calls = self.sync(collector, agents)
+        self.assertEqual(reports["w1:p5"]["agent_work"], "Add filters")
+        # Without a task, OpenRig's own seat-name title is not shown as work.
+        collector.openrig.items, collector.openrig.items_at = [], float("inf")
+        status, reports, calls = self.sync(collector, agents)
+        self.assertIsNone(reports["w1:p5"]["agent_work"])
+
+    def test_a_plain_agents_work_is_its_session_title(self):
+        collector = self.collector()
+        transcript = self.home / "transcript.jsonl"
+        lines = [{"type": "ai-title", "aiTitle": "Fix login", "sessionId": CLAUDE_TOKEN},
+                 {"type": "custom-title", "customTitle": "Login bug", "sessionId": CLAUDE_TOKEN},
+                 {"type": "assistant", "sessionId": CLAUDE_TOKEN, "message": {"model": "claude-opus-5-5"}}]
+        transcript.write_text("".join(json.dumps(line) + "\n" for line in lines))
+        collector.discover = lambda wanted: collector.paths.update({CLAUDE_TOKEN: transcript})
+        agent = {"pane_id": "w1:p1", "agent": "claude", "agent_session": {"kind": "id", "value": CLAUDE_TOKEN}}
+        status, reports, calls = self.sync(collector, [agent])
+        self.assertEqual(reports["w1:p1"]["agent_work"], "Login bug")
+        # A status-line capture replaces the observation but keeps the title.
+        info.atomic_json(collector.directory / (info.digest(CLAUDE_TOKEN) + ".json"), {
+            "pane_id": "w1:p1", "captured_at": 9e9,
+            "observation": {"model": "Opus 5.5", "model_id": "claude-opus-5-5", "context": info.context(1, 4)}})
+        status, reports, calls = self.sync(collector, [agent])
+        self.assertEqual(reports["w1:p1"]["agent_work"], "Login bug")
+        index = self.home / ".codex" / "session_index.jsonl"
+        index.parent.mkdir(parents=True, exist_ok=True)
+        index.write_text('{"id":"t1","thread_name":"Old"}\n{"id":"t1","thread_name":"Keep work"}\nnot json\n')
+        self.assertEqual(info.thread_names(index.read_text()), {"t1": "Keep work"})
+
+    def test_task_leads_the_details_row_only_when_chosen(self):
+        import sidebar_settings as prefs
+        observation = {"model": "Opus 5.5", "model_id": "claude-opus-5-5", "work": "Add filters"}
+        self.assertEqual(info.tokens(observation, "claude")["agent_info"], "Claude Opus 5.5")
+        chosen = prefs.DEFAULTS | {"show_task": True}
+        self.assertEqual(info.tokens(observation, "claude", chosen)["agent_info"], "Add filters · Claude Opus 5.5")
+        template = prefs.DEFAULTS | {"text_mode": "custom", "text_template": "{task} · {model}"}
+        self.assertEqual(info.tokens(observation, "claude", template)["agent_info"], "Add filters · Opus 5.5")
+        self.assertEqual(info.tokens(dict(observation, work=None), "claude", template)["agent_info"], "Opus 5.5")
 
     def test_without_detail_collection_the_daemon_is_never_asked(self):
         collector = self.collector({"collect_details": False})
