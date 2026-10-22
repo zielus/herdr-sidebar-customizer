@@ -154,8 +154,8 @@ SECTIONS = [
               'Spaced adds a blank row between agents. Spaces has its own setting.'),
         Heading('GROUPING'),
         Field('agent_row_shows', 'Agent row shows', tuple(CHOICE_LABELS['agent_row_shows']),
-              'What follows the symbol on each agent row. Agent name is the name from '
-              'herdr agent rename, else the agent type.'),
+              "What follows the symbol on each agent row. Agent name is the pane's name "
+              '(OpenRig names seats this way), else the herdr agent name, else the agent type.'),
         Field('group_agents', 'Group by space', ON_OFF,
               "Show each space's name once, above its agents. Needs Herdr's grouped order."),
         Field('groups_gap', 'Group spacing', GAPS, 'Spaced adds a blank row after each group.'),

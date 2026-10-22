@@ -18,6 +18,9 @@ AGENTS = [
 SPACES = [{'workspace_id': 'w1', 'label': 'boxbox', 'agent_status': 'idle'},
           {'workspace_id': 'w2', 'label': 'Projects', 'agent_status': 'idle'}]
 PALETTE = {'w1': 'red_light', 'w2': 'blue_dark'}
+# OpenRig names its seats by pane label; p2's label wins over its agent name.
+PANES = [{'pane_id': 'p1', 'label': None}, {'pane_id': 'p2', 'label': 'dev.review'},
+         {'pane_id': 'p3', 'label': ' '}]
 IDLE = prefs.DEFAULTS['idle_symbol']
 
 
@@ -32,6 +35,7 @@ class GroupingTests(unittest.TestCase):
         def rpc(endpoint, method, params=None):
             if method == 'agent.list': return {'agents': AGENTS}
             if method == 'workspace.list': return {'workspaces': SPACES}
+            if method == 'pane.list': return {'panes': PANES}
             if method == 'pane.report_metadata':
                 # Herdr refuses a report that updates more than 16 tokens.
                 self.assertLessEqual(len(params['tokens']), 16)
@@ -60,7 +64,7 @@ class GroupingTests(unittest.TestCase):
         self.assertIsNone(second['group_red'])
         # The heading is the first agent's own first row, so its name row needs no indent.
         self.assertEqual(first['space_red'], IDLE + shade_marker('light') + ' lead')
-        self.assertEqual(second['space_red'], INDENT[0] + shade_marker('light') + INDENT[1:] + IDLE + ' advisor')
+        self.assertEqual(second['space_red'], INDENT[0] + shade_marker('light') + INDENT[1:] + IDLE + ' dev.review')
         self.assertEqual(first['group_info'], INDENT + 'Opus 5.5 · high')
         self.assertIsNone(second['group_info'])
         self.assertIsNone(first['group_gap'])

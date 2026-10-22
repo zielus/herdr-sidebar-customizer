@@ -56,15 +56,19 @@ def heading_tokens(name, color, settings):
     return values
 
 
-def agent_row_name(agent, space, settings):
-    """What an agent row shows after its symbol: its space, its Herdr name, or nothing."""
+def agent_row_name(agent, space, settings, pane_label=None):
+    """What an agent row shows after its symbol: its space, its name, or nothing.
+
+    The name is the pane's label, which need not be unique and is what OpenRig
+    names its seats by, then Herdr's agent name, then the agent type.
+    """
     from sidebar_settings import AGENT_NAMES
     choice = settings['agent_row_shows']
     if choice == 'space':
         return space
     if choice == 'agent':
         kind = agent.get('agent') or ''
-        return (agent.get('name') or settings.get(kind + '_label')
+        return (pane_label or agent.get('name') or settings.get(kind + '_label')
                 or AGENT_NAMES.get(kind, kind.title()))
     return ''
 
@@ -142,6 +146,7 @@ class Animator:
         names = {w['workspace_id']: w.get('label', '') for w in workspaces}
         colors = self.palette()
         positions = group_positions(agents, workspaces)
+        labels = self.pane_labels(settings)
         current = set()
         working = 0
         for kind, items, id_key in [("pane", agents, "pane_id"),
@@ -162,7 +167,8 @@ class Animator:
                     # The heading is the first agent's own first row, so only
                     # the other agents need the indent to line up under it.
                     indent = INDENT if grouped and not position[0] else ''
-                    values = label_tokens(status, now, agent_row_name(item, name, settings), color,
+                    row_name = agent_row_name(item, name, settings, labels.get(item['pane_id']))
+                    values = label_tokens(status, now, row_name, color,
                                           settings, show_name=show, indent=indent)
                     group_key = (kind, item[id_key], 'group')
                     current.add(group_key)
@@ -177,6 +183,13 @@ class Animator:
         if self.settings.error:
             result['settings_error'] = self.settings.error
         return result
+
+    def pane_labels(self, settings):
+        """{pane: label} for panes that have one; read only when agent rows show names."""
+        if settings['agent_row_shows'] != 'agent':
+            return {}
+        panes = rpc(self.endpoint, "pane.list")["panes"]
+        return {p['pane_id']: p['label'] for p in panes if isinstance(p.get('label'), str) and p['label'].strip()}
 
     def report(self, key, id_key, source, values, now):
         """Publish changed values, and unchanged ones again before they go stale."""
