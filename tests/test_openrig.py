@@ -161,15 +161,15 @@ class CollectorBridgeTests(IsolatedTestCase):
         index.write_text('{"id":"t1","thread_name":"Old"}\n{"id":"t1","thread_name":"Keep work"}\nnot json\n')
         self.assertEqual(info.thread_names(index.read_text()), {"t1": "Keep work"})
 
-    def test_task_leads_the_details_row_only_when_chosen(self):
+    def test_work_can_replace_the_tab_name_in_the_first_row(self):
+        import tomllib
         import sidebar_settings as prefs
-        observation = {"model": "Opus 5.5", "model_id": "claude-opus-5-5", "work": "Add filters"}
-        self.assertEqual(info.tokens(observation, "claude")["agent_info"], "Claude Opus 5.5")
-        chosen = prefs.DEFAULTS | {"show_task": True}
-        self.assertEqual(info.tokens(observation, "claude", chosen)["agent_info"], "Add filters · Claude Opus 5.5")
-        template = prefs.DEFAULTS | {"text_mode": "custom", "text_template": "{task} · {model}"}
-        self.assertEqual(info.tokens(observation, "claude", template)["agent_info"], "Add filters · Opus 5.5")
-        self.assertEqual(info.tokens(dict(observation, work=None), "claude", template)["agent_info"], "Opus 5.5")
+        config = (Path(__file__).parent / "fixtures/config.toml").read_text()
+        def first_row(settings):
+            rows = tomllib.loads(prefs.render_config(config, settings))["ui"]["sidebar"]["agents"]["rows"]
+            return [token["token"] for token in rows[0] if isinstance(token, dict)][-1]
+        self.assertEqual(first_row(prefs.DEFAULTS), "tab")
+        self.assertEqual(first_row(prefs.DEFAULTS | {"show_work": True}), "$agent_work")
 
     def test_without_detail_collection_the_daemon_is_never_asked(self):
         collector = self.collector({"collect_details": False})

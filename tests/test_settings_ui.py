@@ -288,7 +288,7 @@ class SettingsUITests(unittest.TestCase):
         self.assertEqual(keys['Agents'][:4], ['collect_details', 'agent_text', 'detail_hints', 'text_mode'])
         self.assertEqual(keys['Agents'][-6:], ['show_machine', 'machine_position', 'agents_gap',
                                                'agent_row_shows', 'group_agents', 'groups_gap'])
-        self.assertEqual(keys['Tabs'], ['show_tab', 'tab_names', 'tab_name_format'])
+        self.assertEqual(keys['Tabs'], ['show_tab', 'show_work', 'tab_names', 'tab_name_format'])
         self.assertEqual(keys['Shortcuts'][-1], 'shortcut_pin_tab')
         saved = {key for fields in keys.values() for key in fields if not key.startswith('@')}
         merged = {'state_icons', 'space_names', 'show_git_icon', 'git_icon', 'show_context',

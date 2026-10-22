@@ -133,8 +133,6 @@ SECTIONS = [
         Field('text_mode', 'Details text', tuple(CHOICE_LABELS['text_mode']),
               'Pick fields uses the switches below; Write a template gives full control. '
               'Each keeps its own settings.'),
-        Field('show_task', 'Task', ON_OFF,
-              "What the agent works on, first in the row: its OpenRig task, else its session's title."),
         Field('show_agent', 'Agent name', ON_OFF, 'Show the agent name, as set in Agent names.'),
         Field('show_model', 'Model', ON_OFF, 'Show the model reported by the session.'),
         Field('show_effort', 'Reasoning effort', ON_OFF, 'Unknown effort is left out.'),
@@ -164,6 +162,9 @@ SECTIONS = [
     ]),
     Section('Tabs', [
         Field('show_tab', 'Show tab name', ON_OFF, 'Show the tab name after the space in the Agents list.'),
+        Field('show_work', "Agent's work instead", ON_OFF,
+              "Show what each agent works on in place of its tab's name: its OpenRig task, "
+              "else its session's title. Agents sharing a tab then read apart."),
         Field('tab_names', 'Rename tabs from agent topic', ON_OFF,
               "Rename each agent's tab from its title, e.g. after /rename. A name you type stays "
               'until the title changes; pin a tab to keep it.'),
@@ -216,7 +217,7 @@ SECTIONS = [
 ]
 # Pages whose settings change the sample rows; the others hide the previews.
 PREVIEW_PAGES = ('Spaces', 'Agents', 'Tabs', 'Colors', 'Motion & symbols')
-AUTOMATIC_ONLY = {'show_task', 'show_agent', 'show_model', 'show_effort', '@context', 'show_capacity',
+AUTOMATIC_ONLY = {'show_agent', 'show_model', 'show_effort', '@context', 'show_capacity',
                   '@agent_names'}
 # These only shape the details row, so they mean nothing while it is hidden.
 DETAILS_ROW_DEPENDENTS = AUTOMATIC_ONLY | {'detail_hints', 'text_mode', 'text_template'}
@@ -233,6 +234,8 @@ def find_field(key):
 def inactive_reason(session, key):
     """Explain inactive fields while keeping their saved choices intact."""
     draft = session.draft
+    if key == 'show_work' and not draft['show_tab']:
+        return 'Inactive: turn on Show tab name.'
     if key == 'tab_name_format' and not draft['tab_names']:
         return 'Inactive: turn on Rename tabs from agent topic.'
     if key in SYMBOL_DEPENDENTS and not draft['state_icons']:
@@ -603,7 +606,6 @@ def template_help(width):
         '{capacity}      Context window: 1M',
         '{used_pct}      Percentage used: 25%',
         '{remaining_pct} Percentage remaining: 75%',
-        "{task}          What it works on: its OpenRig task, else its session's title",
         '',
         'Example: {agent} {model} · {effort} · {context}',
         'Remaining: {model} · {remaining_pct} left',
@@ -701,7 +703,7 @@ def git_preview_row(draft, branch):
     return row
 
 
-# What the samples might be working on, for the details row's Task.
+# What the samples might be working on, shown in place of their tab's name.
 SAMPLE_WORK = {'claude': 'Add search filters', 'codex': 'Review the filters'}
 # Names the samples might be given with herdr agent rename.
 SAMPLE_HANDLES = {'claude': 'builder', 'codex': 'reviewer'}
@@ -731,7 +733,8 @@ def agent_sample_rows(draft, sample, now):
     if remote and draft['machine_position'] == 'name':
         append_segment(title, SAMPLE_MACHINE, machine_color, bold=True)
     if draft['show_tab']:
-        append_segment(title, sample.tab, draft['tab_colour'])
+        work = SAMPLE_WORK.get(sample.agent, sample.tab) if draft['show_work'] else sample.tab
+        append_segment(title, work, draft['tab_colour'])
     rows = [title]
     details = []
     if remote and draft['machine_position'] == 'details':
@@ -746,7 +749,7 @@ def agent_sample_rows(draft, sample, now):
 
 
 def sample_agent_info(draft, sample):
-    observation = {'model': sample.model, 'effort': 'medium', 'work': SAMPLE_WORK.get(sample.agent),
+    observation = {'model': sample.model, 'effort': 'medium',
                    'context': {'used': 250000, 'window': 1000000, 'percent': 25}}
     try:
         settings.validate(draft)

@@ -55,7 +55,7 @@ AGENT_NAMES = {'opencode': 'OpenCode', 'pi': 'pi', 'omp': 'omp'}
 DEFAULTS = {
     'animation': '01', 'speed': 1.0, 'animate': True, 'state_icons': True,
     'space_names': True, 'space_colours': True, 'name_bold': True,
-    'collect_details': False, 'agent_text': True, 'show_task': False, 'show_agent': True, 'show_model': True,
+    'collect_details': False, 'agent_text': True, 'show_agent': True, 'show_model': True,
     'show_effort': True, 'show_context': True, 'show_capacity': True,
     'context_mode': 'used', 'claude_label': 'Claude', 'codex_label': 'Codex',
     'opencode_label': 'OpenCode', 'pi_label': 'pi', 'omp_label': 'omp',
@@ -64,7 +64,7 @@ DEFAULTS = {
     'branch_colour': 'theme', 'neutral_colour': 'theme',
     'show_tab': True, 'show_machine': True, 'machine_position': 'name', 'detail_hints': True,
     'agent_row_shows': 'space', 'group_agents': False, 'groups_gap': 1,
-    'tab_names': False, 'tab_name_format': '{topic}',
+    'tab_names': False, 'tab_name_format': '{topic}', 'show_work': False,
     'show_branch': True, 'show_git': True,
     'empty_git_row': 'blank', 'show_git_icon': False, 'git_icon': '41', 'spaces_gap': 0, 'agents_gap': 0,
     'default_hue': 'random', 'default_shade': 'medium',
@@ -83,7 +83,7 @@ SHORTCUTS = {
 # this plugin's own description is managed, so Apply leaves theirs alone.
 DESCRIBED_ONLY = {PLUGIN + '.pin-tab': SHORTCUTS['shortcut_pin_tab'][1]}
 FIELDS = {'agent', 'model', 'effort', 'context', 'used', 'remaining', 'capacity',
-          'used_pct', 'remaining_pct', 'task'}
+          'used_pct', 'remaining_pct'}
 DEFAULT_TEMPLATE = '{agent} {model} · {effort} · {context}'
 MANAGED_COMMANDS = frozenset(PLUGIN + '.' + action for action, _ in SHORTCUTS.values())
 
@@ -266,7 +266,6 @@ def custom_label(values, agent, template):
         'used_pct': values.get('context_used_pct'),
         'remaining_pct': values.get('context_left_pct'),
         'capacity': context_capacity(values),
-        'task': values.get('agent_work'),
     }
     return render_template(template, mapping)
 
@@ -279,9 +278,7 @@ def automatic_label(values, agent, settings):
     if settings['show_context']:
         context = context_text(values, settings['context_mode'] == 'remaining', settings['show_capacity'])
     first = ' '.join(part for part in (harness, model) if part)
-    # The task leads, so a narrow sidebar cuts the details rather than the work.
-    task = values.get('agent_work') if settings['show_task'] else ''
-    return ' · '.join(part for part in (task, first, effort, context) if part)
+    return ' · '.join(part for part in (first, effort, context) if part)
 
 
 def agent_label(values, agent, settings):
@@ -362,7 +359,9 @@ def first_row_extras(section, settings, machine):
         return []
     tokens = list(machine) if settings['machine_position'] == 'name' else []
     if settings['show_tab']:
-        tokens.append(styled_token('tab', settings['tab_colour']))
+        # Agents sharing a tab, as an OpenRig team does, read apart by their own work.
+        tab = '$agent_work' if settings['show_work'] else 'tab'
+        tokens.append(styled_token(tab, settings['tab_colour']))
     return tokens
 
 
