@@ -1,0 +1,46 @@
+[
+  {
+    "canonicalSessionName": "dev-build@boxbox",
+    "runtime": "claude-code",
+    "resumeToken": "11111111-2222-4333-8444-555555555555",
+    "contextUsage": {
+      "availability": "known",
+      "reason": null,
+      "source": "claude_statusline_json",
+      "usedPercentage": 7,
+      "remainingPercentage": 93,
+      "contextWindowSize": 1000000,
+      "totalInputTokens": 68826,
+      "totalOutputTokens": 478,
+      "currentUsage": null,
+      "transcriptPath": "/home/you/transcript.jsonl",
+      "sessionId": "11111111-2222-4333-8444-555555555555",
+      "sessionName": "dev-build@boxbox",
+      "sampledAt": "2026-10-22T01:35:03.944Z",
+      "fresh": true
+    },
+    "logicalId": "dev.build"
+  },
+  {
+    "canonicalSessionName": "dev-qa@boxbox",
+    "runtime": "codex",
+    "resumeToken": "01a16100-0000-7000-8000-000000000001",
+    "contextUsage": {
+      "availability": "known",
+      "reason": null,
+      "source": "codex_token_count_jsonl",
+      "usedPercentage": 13,
+      "remainingPercentage": 87,
+      "contextWindowSize": 258400,
+      "totalInputTokens": 32523,
+      "totalOutputTokens": 190,
+      "currentUsage": null,
+      "transcriptPath": "/home/you/transcript.jsonl",
+      "sessionId": "01a16100-0000-7000-8000-000000000001",
+      "sessionName": "dev-qa@boxbox",
+      "sampledAt": "2026-10-22T01:35:03.944Z",
+      "fresh": false
+    },
+    "logicalId": "dev.qa"
+  }
+]

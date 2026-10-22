@@ -420,6 +420,9 @@ class Collector:
         self.integrations = IntegrationCheck(os.environ.get("HERDR_BIN_PATH") or "herdr")
         self.opencode = opencode.Reader()
         self.pi = pi_sessions.Reader()
+        import openrig
+        self.openrig = openrig.Bridge(endpoint, rpc)
+        self.openrig_context = {}
         codex_home = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex")))
         self.transcript_roots = [("codex", codex_home / "sessions"),
                                  ("claude", settings_path().parent / "projects")]
@@ -428,6 +431,11 @@ class Collector:
         agents = rpc(self.endpoint, "agent.list")["agents"]
         settings = self.settings.load()
         errors = self.sync_spaces(agents, settings)
+        if settings["collect_details"]:
+            try:
+                agents = self.bridge(agents)
+            except RECOVERABLE as error:
+                errors["openrig_error"] = type(error).__name__
         sessioned, unsessioned, rejected = self.partition(agents, settings)
         hook = self.hook.installed()
         # Only asked while some agent lacks a session, and then once a minute.
@@ -456,6 +464,23 @@ class Collector:
         return run_guarded({
             "space_colors_error": sync_colors,
             "space_rows_error": lambda: self.space_rows.sync(settings)})
+
+    def bridge(self, agents):
+        """Give agents that OpenRig runs the session and context its daemon knows."""
+        import openrig
+        self.openrig_context = {}
+        self.openrig.forget({agent["pane_id"] for agent in agents})
+        result = []
+        for agent in agents:
+            kind = agent.get("agent")
+            if kind in openrig.KINDS.values() and not has_session(agent):
+                node = self.openrig.seat(agent["pane_id"])
+                session = openrig.agent_session(node, kind) if node else None
+                if session:
+                    agent = dict(agent, agent_session=session)
+                    self.openrig_context[agent["pane_id"]] = openrig.context_reading(node)
+            result.append(agent)
+        return result
 
     def partition(self, agents, settings):
         """Supported agents as (agent, ref) pairs with a readable session, plus those
@@ -559,7 +584,12 @@ class Collector:
             return self.pi.observe(kind, ref)
         observation = self.read_transcript(kind, ref)
         if kind == "claude":
-            observation = merge_statusline(observation, self.captured(ref, pane))
+            captured = self.captured(ref, pane)
+            observation = merge_statusline(observation, captured)
+            # An OpenRig seat runs its own status line, so its daemon reports the context.
+            reading = None if captured else self.openrig_context.get(pane)
+            if reading:
+                observation = dict(observation, context=context(*reading))
         return observation
 
     def read_transcript(self, kind, sid):
