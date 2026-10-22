@@ -27,6 +27,8 @@ QUEUE_STATES = "in-progress,blocked"
 PANE_SECONDS = 30
 # Without a daemon, a refused connection is not retried every sync.
 BACKOFF_SECONDS = 30
+# While the daemon cannot be read, what it said last is shown only this long.
+STALE_SECONDS = 60
 # tmux options before the command that take a value, e.g. the daemon's own -L server.
 TMUX_VALUE_FLAGS = {"-L", "-S", "-f", "-c", "-T"}
 ATTACH = {"attach", "attach-session", "a"}
@@ -134,6 +136,8 @@ class Bridge:
     def rig_nodes(self, rig):
         now = self.clock()
         cached = self.nodes.get(rig)
+        if cached and now - cached[1] >= STALE_SECONDS:
+            cached = None
         if self.url is None or (cached and now - cached[1] < NODES_SECONDS) or now < self.down_until:
             return cached[0] if cached else {}
         try:
@@ -158,6 +162,8 @@ class Bridge:
 
     def queue(self):
         now = self.clock()
+        if now - self.items_at >= STALE_SECONDS:
+            self.items = []
         if self.url is None or now - self.items_at < NODES_SECONDS or now < self.down_until:
             return self.items
         try:

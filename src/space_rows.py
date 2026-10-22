@@ -38,7 +38,37 @@ def upstream_differs(path):
     return result.returncode == 0 and result.stdout.strip() == '1'
 
 
-def git_details(endpoint, workspace, workspaces, settings):
+def team_branch(endpoint, directories, settings):
+    """(reason, branch) for a space holding an OpenRig team, from its seats' directories.
+
+    The space's own tiles run outside any repository, so Herdr knows no branch for
+    it; the seats' checkouts are looked up instead. Only the branch is shown: a
+    status row would describe the tiles' directory, not the team's checkout.
+    """
+    if not settings['show_branch']:
+        return 'No Git details', None
+    branches = set()
+    for directory in directories:
+        try:
+            result = rpc(endpoint, 'worktree.list', {'cwd': directory})
+        except RpcError as error:
+            if error.code == 'not_git_worktree':
+                continue
+            raise
+        # A seat may work in a subdirectory; its checkout is the deepest one containing it.
+        target = Path(directory).resolve()
+        found = [item for item in result['worktrees']
+                 if target == Path(item['path']).resolve() or Path(item['path']).resolve() in target.parents]
+        entry = max(found, key=lambda item: len(Path(item['path']).resolve().parts), default=None)
+        if entry:
+            branches.add(entry.get('branch') or ('detached' if entry.get('is_detached') else ''))
+    branches.discard('')
+    if not branches:
+        return 'no git repo', None
+    return None, ', '.join(sorted(branches))
+
+
+def git_details(endpoint, workspace, workspaces, settings, team_dirs=()):
     if not (settings['show_branch'] or settings['show_git']):
         return 'Git details hidden', None
     membership = workspace.get('worktree') or {}
@@ -52,7 +82,7 @@ def git_details(endpoint, workspace, workspaces, settings):
         result = rpc(endpoint, 'worktree.list', {'workspace_id': workspace['workspace_id']})
     except RpcError as error:
         if error.code == 'not_git_worktree':
-            return 'no git repo', None
+            return team_branch(endpoint, team_dirs, settings) if team_dirs else ('no git repo', None)
         raise
     entries = result['worktrees']
     entry = next((item for item in entries if item.get('open_workspace_id') == workspace['workspace_id']), None)
@@ -94,7 +124,9 @@ class SpaceRows:
     def __init__(self, endpoint):
         self.endpoint = endpoint
 
-    def sync(self, settings):
+    def sync(self, settings, team_dirs=None):
+        """`team_dirs` maps a space to the working directories of the OpenRig seats in it."""
+        team_dirs = team_dirs or {}
         workspaces = rpc(self.endpoint, 'workspace.list')['workspaces']
         failed = False
         for workspace in workspaces:
@@ -102,7 +134,8 @@ class SpaceRows:
                 if settings['empty_git_row']=='hide' and not settings['show_git_icon']:
                     values = dict(EMPTY)
                 else:
-                    reason, branch = git_details(self.endpoint, workspace, workspaces, settings)
+                    reason, branch = git_details(self.endpoint, workspace, workspaces, settings,
+                                                 team_dirs.get(workspace['workspace_id'], ()))
                     values = row_tokens(reason, settings, branch)
             except (OSError, ValueError, RuntimeError, KeyError, TypeError):
                 # Uncertain lookups must not leave a stray separator beside real

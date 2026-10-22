@@ -453,12 +453,13 @@ class Collector:
     def sync(self):
         agents = rpc(self.endpoint, "agent.list")["agents"]
         settings = self.settings.load()
-        errors = self.sync_spaces(agents, settings)
+        errors = {}
         if settings["collect_details"]:
             try:
                 agents = self.bridge(agents)
             except RECOVERABLE as error:
                 errors["openrig_error"] = type(error).__name__
+        errors |= self.sync_spaces(agents, settings)
         sessioned, unsessioned, rejected = self.partition(agents, settings)
         hook = self.hook.installed()
         # Only asked while some agent lacks a session, and then once a minute.
@@ -487,7 +488,16 @@ class Collector:
             return space_colors.sync(self.endpoint, self.directory, load=self.settings.load)
         return run_guarded({
             "space_colors_error": sync_colors,
-            "space_rows_error": lambda: self.space_rows.sync(settings)})
+            "space_rows_error": lambda: self.space_rows.sync(settings, self.team_dirs(agents))})
+
+    def team_dirs(self, agents):
+        """{space: sorted working directories of the OpenRig seats in it}."""
+        result = {}
+        for agent in agents:
+            node = self.openrig_nodes.get(agent["pane_id"])
+            if node and isinstance(node.get("cwd"), str) and node["cwd"]:
+                result.setdefault(agent.get("workspace_id"), set()).add(node["cwd"])
+        return {space: sorted(dirs) for space, dirs in result.items()}
 
     def bridge(self, agents):
         """Give agents that OpenRig runs the session and context its daemon knows."""

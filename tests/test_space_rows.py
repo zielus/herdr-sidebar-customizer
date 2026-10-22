@@ -63,6 +63,24 @@ class SpaceRowTests(unittest.TestCase):
             self.assertTrue(rows.git_details('socket', child, [parent, child], prefs.DEFAULTS)[0])
             rpc.assert_not_called()
 
+    def test_an_openrig_team_space_shows_its_seats_branch(self):
+        team = {'worktrees': [{'path': '/repo', 'branch': 'master'},
+                              {'path': '/repo.worktrees/rig', 'branch': 'rig/main'}]}
+        def rpc(endpoint, method, params):
+            if params.get('workspace_id'):
+                raise RpcError('not_git_worktree')  # the tiles run outside any repository
+            if params['cwd'].startswith('/plain'):
+                raise RpcError('not_git_worktree')
+            return team
+        def details(dirs, **changes):
+            return rows.git_details('socket', self.workspace, [self.workspace], prefs.DEFAULTS | changes, dirs)
+        with patch.object(rows, 'rpc', side_effect=rpc):
+            self.assertEqual(details(['/repo.worktrees/rig', '/repo.worktrees/rig/src']), (None, 'rig/main'))
+            self.assertEqual(details(['/repo', '/repo.worktrees/rig']), (None, 'master, rig/main'))
+            self.assertEqual(details(['/plain']), ('no git repo', None))
+            self.assertEqual(details([]), ('no git repo', None))
+            self.assertEqual(details(['/repo'], show_branch=False), ('No Git details', None))
+
     def test_native_workspace_match_beats_parent_checkout(self):
         self.reply['worktrees'].append({'path': '/child', 'branch': None, 'open_workspace_id': 'w1'})
         with patch.object(rows, 'rpc', return_value=self.reply), patch.object(rows, 'upstream_differs', return_value=False) as upstream:

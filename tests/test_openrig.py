@@ -95,6 +95,18 @@ class BridgeTests(unittest.TestCase):
         bridge.seat("w1:p5")
         self.assertEqual(fetch.call_count, 2)
 
+    def test_a_silent_daemons_last_answer_expires(self):
+        now = [0.0]
+        answers = daemon()
+        fetch = Mock(side_effect=lambda url: answers(url))
+        bridge, rpc = self.bridge(fetch, lambda: now[0])
+        self.assertIsNotNone(bridge.seat("w1:p5"))
+        fetch.side_effect = ConnectionRefusedError()
+        now[0] = openrig.NODES_SECONDS + 1
+        self.assertIsNotNone(bridge.seat("w1:p5"))  # shown a while longer
+        now[0] = openrig.STALE_SECONDS + 1
+        self.assertIsNone(bridge.seat("w1:p5"))
+
     def test_unknown_rig_and_non_tile_panes_find_nothing(self):
         bridge, rpc = self.bridge(daemon(rigs=[]), lambda: 0)
         self.assertIsNone(bridge.seat("w1:p5"))
