@@ -375,6 +375,8 @@ def git_row(settings):
         tokens.append('"git_status"')
     if settings['show_branch'] and not settings['show_git_icon']:
         tokens.append(styled_token('branch', settings['branch_colour']))
+        # Set only for an OpenRig team's space, whose native branch is empty.
+        tokens.append(styled_token('$space_team_branch', settings['branch_colour']))
     if settings['empty_git_row'] != 'hide':
         from space_rows import PLACEHOLDER_COLOUR
         tokens.append(styled_token('$space_git_padding', PLACEHOLDER_COLOUR))

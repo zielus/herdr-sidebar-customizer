@@ -455,10 +455,11 @@ class Collector:
         settings = self.settings.load()
         errors = {}
         if settings["collect_details"]:
-            try:
-                agents = self.bridge(agents)
-            except RECOVERABLE as error:
-                errors["openrig_error"] = type(error).__name__
+            agents, failure = self.bridge(agents)
+            if failure:
+                errors["openrig_error"] = failure
+        else:
+            self.openrig_context, self.openrig_nodes = {}, {}
         errors |= self.sync_spaces(agents, settings)
         sessioned, unsessioned, rejected = self.partition(agents, settings)
         hook = self.hook.installed()
@@ -500,22 +501,31 @@ class Collector:
         return {space: sorted(dirs) for space, dirs in result.items()}
 
     def bridge(self, agents):
-        """Give agents that OpenRig runs the session and context its daemon knows."""
+        """Give agents that OpenRig runs the session and context its daemon knows.
+
+        Returns the agents and the type of the first lookup that failed, if any;
+        a failed lookup skips only its own pane.
+        """
         import openrig
         self.openrig_context, self.openrig_nodes = {}, {}
         self.openrig.forget({agent["pane_id"] for agent in agents})
-        result = []
+        result, failure = [], None
         for agent in agents:
             kind = agent.get("agent")
             if kind in openrig.KINDS.values() and not has_session(agent):
-                node = self.openrig.seat(agent["pane_id"])
+                try:
+                    node = self.openrig.seat(agent["pane_id"])
+                except RECOVERABLE as error:
+                    failure, node = failure or type(error).__name__, None
+                if node:
+                    # A seat counts for its space's branch even before its session is known.
+                    self.openrig_nodes[agent["pane_id"]] = node
                 session = openrig.agent_session(node, kind) if node else None
                 if session:
                     agent = dict(agent, agent_session=session)
                     self.openrig_context[agent["pane_id"]] = openrig.context_reading(node)
-                    self.openrig_nodes[agent["pane_id"]] = node
             result.append(agent)
-        return result
+        return result, failure
 
     def partition(self, agents, settings):
         """Supported agents as (agent, ref) pairs with a readable session, plus those

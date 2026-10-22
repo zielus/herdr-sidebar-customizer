@@ -17,7 +17,10 @@ SOURCE = PLUGIN + '.space-rows'
 TOKEN = 'space_git_padding'
 ICON_TOKEN = 'space_git_icon'
 BRANCH_TOKEN = 'space_git_branch'
-EMPTY = dict.fromkeys((TOKEN, ICON_TOKEN, BRANCH_TOKEN))
+# An OpenRig team's branch, for rows without the Git icon: Herdr's own branch
+# token is empty there, as the space's tiles run outside any repository.
+TEAM_TOKEN = 'space_team_branch'
+EMPTY = dict.fromkeys((TOKEN, ICON_TOKEN, BRANCH_TOKEN, TEAM_TOKEN))
 GIT_ICON = GIT_ICONS[DEFAULTS['git_icon']][1]
 PLACEHOLDER_COLOUR = '#585b70'
 # Whitespace is normalized away by the API. This zero-width format character
@@ -38,7 +41,11 @@ def upstream_differs(path):
     return result.returncode == 0 and result.stdout.strip() == '1'
 
 
-def team_branch(endpoint, directories, settings):
+class TeamBranch(str):
+    """A branch read from an OpenRig team's checkouts rather than Herdr's own."""
+
+
+def team_branch(endpoint, directories, settings, lookups=None):
     """(reason, branch) for a space holding an OpenRig team, from its seats' directories.
 
     The space's own tiles run outside any repository, so Herdr knows no branch for
@@ -47,14 +54,19 @@ def team_branch(endpoint, directories, settings):
     """
     if not settings['show_branch']:
         return 'No Git details', None
+    lookups = {} if lookups is None else lookups
     branches = set()
     for directory in directories:
-        try:
-            result = rpc(endpoint, 'worktree.list', {'cwd': directory})
-        except RpcError as error:
-            if error.code == 'not_git_worktree':
-                continue
-            raise
+        if directory not in lookups:
+            try:
+                lookups[directory] = rpc(endpoint, 'worktree.list', {'cwd': directory})
+            except RpcError as error:
+                if error.code != 'not_git_worktree':
+                    raise
+                lookups[directory] = None
+        result = lookups[directory]
+        if result is None:
+            continue
         # A seat may work in a subdirectory; its checkout is the deepest one containing it.
         target = Path(directory).resolve()
         found = [item for item in result['worktrees']
@@ -65,10 +77,10 @@ def team_branch(endpoint, directories, settings):
     branches.discard('')
     if not branches:
         return 'no git repo', None
-    return None, ', '.join(sorted(branches))
+    return None, TeamBranch(', '.join(sorted(branches)))
 
 
-def git_details(endpoint, workspace, workspaces, settings, team_dirs=()):
+def git_details(endpoint, workspace, workspaces, settings, team_dirs=(), lookups=None):
     if not (settings['show_branch'] or settings['show_git']):
         return 'Git details hidden', None
     membership = workspace.get('worktree') or {}
@@ -82,7 +94,7 @@ def git_details(endpoint, workspace, workspaces, settings, team_dirs=()):
         result = rpc(endpoint, 'worktree.list', {'workspace_id': workspace['workspace_id']})
     except RpcError as error:
         if error.code == 'not_git_worktree':
-            return team_branch(endpoint, team_dirs, settings) if team_dirs else ('no git repo', None)
+            return team_branch(endpoint, team_dirs, settings, lookups) if team_dirs else ('no git repo', None)
         raise
     entries = result['worktrees']
     entry = next((item for item in entries if item.get('open_workspace_id') == workspace['workspace_id']), None)
@@ -106,7 +118,9 @@ def row_tokens(reason, settings, branch=None):
         padding = reason
     else:
         padding = BLANK
-    combined, icon = None, None
+    combined, icon, team = None, None, None
+    if not reason and isinstance(branch, TeamBranch) and settings['show_branch'] and not settings['show_git_icon']:
+        team = branch[:80]
     if settings['show_git_icon']:
         # Herdr inserts dots between text tokens. Keep icon + text in one token
         # for branch names and placeholders, as we already do for space names.
@@ -117,7 +131,7 @@ def row_tokens(reason, settings, branch=None):
                 combined = glyph + ' ' + branch[:78]
             else:
                 icon = glyph  # status-only: Herdr uses a space before git_status
-    return {TOKEN: padding, ICON_TOKEN: icon, BRANCH_TOKEN: combined}
+    return {TOKEN: padding, ICON_TOKEN: icon, BRANCH_TOKEN: combined, TEAM_TOKEN: team}
 
 
 class SpaceRows:
@@ -129,13 +143,15 @@ class SpaceRows:
         team_dirs = team_dirs or {}
         workspaces = rpc(self.endpoint, 'workspace.list')['workspaces']
         failed = False
+        lookups = {}  # each team directory is looked up once per sync
         for workspace in workspaces:
+            dirs = team_dirs.get(workspace['workspace_id'], ())
             try:
-                if settings['empty_git_row']=='hide' and not settings['show_git_icon']:
+                if settings['empty_git_row']=='hide' and not settings['show_git_icon'] and not dirs:
                     values = dict(EMPTY)
                 else:
                     reason, branch = git_details(self.endpoint, workspace, workspaces, settings,
-                                                 team_dirs.get(workspace['workspace_id'], ()))
+                                                 dirs, lookups)
                     values = row_tokens(reason, settings, branch)
             except (OSError, ValueError, RuntimeError, KeyError, TypeError):
                 # Uncertain lookups must not leave a stray separator beside real

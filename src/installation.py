@@ -16,6 +16,7 @@ from sidebar_state import GROUP_SOURCE, GROUP_TOKENS, SOURCE as ANIMATION_SOURCE
 from space_colors import HUES, KEYS as COLOR_KEYS
 from space_rows import (
     BRANCH_TOKEN as ROWS_BRANCH_TOKEN,
+    TEAM_TOKEN as ROWS_TEAM_TOKEN,
     ICON_TOKEN as ROWS_ICON_TOKEN,
     SOURCE as ROWS_SOURCE,
     TOKEN as ROWS_TOKEN,
@@ -316,7 +317,7 @@ def clear_metadata(endpoint):
         rpc(endpoint, 'pane.report_metadata',
             {'pane_id': pane_id, 'source': AGENT_SOURCE, 'tokens': dict.fromkeys(TOKEN_NAMES)})
         fallback.clear(endpoint, pane_id)
-    rows = dict.fromkeys([ROWS_TOKEN, ROWS_ICON_TOKEN, ROWS_BRANCH_TOKEN])
+    rows = dict.fromkeys([ROWS_TOKEN, ROWS_ICON_TOKEN, ROWS_BRANCH_TOKEN, ROWS_TEAM_TOKEN])
     for space in rpc(endpoint, 'workspace.list')['workspaces']:
         workspace_id = space['workspace_id']
         rpc(endpoint, 'workspace.report_metadata',

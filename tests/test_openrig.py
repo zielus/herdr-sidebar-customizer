@@ -212,12 +212,24 @@ class CollectorBridgeTests(IsolatedTestCase):
         self.sync(collector, [{"pane_id": "w1:p5", "agent": "claude"}])
         collector.openrig.seat.assert_not_called()
 
-    def test_a_failing_lookup_is_recorded_and_details_continue(self):
+    def test_a_failing_lookup_skips_only_its_own_pane(self):
         collector = self.collector()
-        collector.openrig = Mock(**{"seat.side_effect": info.RpcError("pane_not_found")})
-        status, reports, calls = self.sync(collector, [{"pane_id": "w1:p5", "agent": "claude"}])
-        self.assertEqual(status["openrig_error"], "RpcError")
-        self.assertEqual(status["missing_session"], {"claude": 1})
+        good = NODES[0]
+        collector.openrig = Mock(**{"seat.side_effect": [info.RpcError("pane_not_found"), good]})
+        agents = [{"pane_id": "w1:p4", "agent": "claude"}, {"pane_id": "w1:p5", "agent": "claude"}]
+        bridged, failure = collector.bridge(agents)
+        self.assertEqual(failure, "RpcError")
+        self.assertNotIn("agent_session", bridged[0])
+        self.assertEqual(bridged[1]["agent_session"]["value"], CLAUDE_TOKEN)
+
+    def test_seats_count_for_branches_without_a_session_and_clear_when_collection_stops(self):
+        collector = self.collector()
+        collector.openrig = Mock(**{"seat.return_value": dict(NODES[0], resumeToken=None, cwd="/rig")})
+        collector.bridge([{"pane_id": "w1:p5", "agent": "claude", "workspace_id": "w1"}])
+        self.assertEqual(collector.team_dirs([{"pane_id": "w1:p5", "workspace_id": "w1"}]), {"w1": ["/rig"]})
+        collector.settings.load = lambda: __import__("sidebar_settings").DEFAULTS | {"collect_details": False}
+        self.sync(collector, [])
+        self.assertEqual(collector.openrig_nodes, {})
 
 
 if __name__ == "__main__":

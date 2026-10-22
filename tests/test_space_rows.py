@@ -81,6 +81,28 @@ class SpaceRowTests(unittest.TestCase):
             self.assertEqual(details([]), ('no git repo', None))
             self.assertEqual(details(['/repo'], show_branch=False), ('No Git details', None))
 
+    def test_team_branch_shows_without_the_git_icon_and_dirs_are_looked_up_once(self):
+        team = {'worktrees': [{'path': '/rig', 'branch': 'rig/main'}]}
+        calls = []
+        def rpc(endpoint, method, params=None):
+            if method == 'workspace.list':
+                return {'workspaces': [{'workspace_id': 'w1'}, {'workspace_id': 'w2'}]}
+            if method == 'worktree.list':
+                calls.append(params)
+                if params.get('workspace_id'):
+                    raise RpcError('not_git_worktree')
+                return team
+            return {}
+        plain = prefs.DEFAULTS | {'show_git_icon': False, 'empty_git_row': 'hide'}
+        writes = []
+        with patch.object(rows, 'rpc', side_effect=lambda e, m, p=None: writes.append(p) or rpc(e, m, p)):
+            rows.SpaceRows('socket').sync(plain, {'w1': ['/rig'], 'w2': ['/rig']})
+        published = [p['tokens'] for p in writes if p and p.get('source') == rows.SOURCE]
+        self.assertEqual([t[rows.TEAM_TOKEN] for t in published], ['rig/main', 'rig/main'])
+        self.assertEqual(sum(1 for c in calls if c.get('cwd')), 1)
+        # A space Herdr resolves itself never gets the team token, so its branch shows once.
+        self.assertIsNone(rows.row_tokens(None, plain, 'main')[rows.TEAM_TOKEN])
+
     def test_native_workspace_match_beats_parent_checkout(self):
         self.reply['worktrees'].append({'path': '/child', 'branch': None, 'open_workspace_id': 'w1'})
         with patch.object(rows, 'rpc', return_value=self.reply), patch.object(rows, 'upstream_differs', return_value=False) as upstream:
@@ -138,16 +160,16 @@ class SpaceRowTests(unittest.TestCase):
         worker = rows.SpaceRows('socket')
         with patch.object(rows, 'rpc', side_effect=rpc):
             worker.sync(prefs.DEFAULTS)
-            self.assertEqual(writes[0][1]['tokens'], {rows.TOKEN: rows.BLANK, rows.ICON_TOKEN: None, rows.BRANCH_TOKEN: None})
+            self.assertEqual(writes[0][1]['tokens'], {rows.TOKEN: rows.BLANK, rows.ICON_TOKEN: None, rows.BRANCH_TOKEN: None, rows.TEAM_TOKEN: None})
             self.assertEqual(writes[0][0], 'workspace.report_metadata')
             worker.sync(prefs.DEFAULTS)
             self.assertEqual(len(writes), 1)
             worker.sync(prefs.DEFAULTS | {'empty_git_row': 'hide'})
-            self.assertEqual(writes[-1][1]['tokens'], {rows.TOKEN: None, rows.ICON_TOKEN: None, rows.BRANCH_TOKEN: None})
-            self.workspace['tokens'] = {rows.TOKEN: rows.BLANK, rows.ICON_TOKEN: None, rows.BRANCH_TOKEN: None}
+            self.assertEqual(writes[-1][1]['tokens'], {rows.TOKEN: None, rows.ICON_TOKEN: None, rows.BRANCH_TOKEN: None, rows.TEAM_TOKEN: None})
+            self.workspace['tokens'] = {rows.TOKEN: rows.BLANK, rows.ICON_TOKEN: None, rows.BRANCH_TOKEN: None, rows.TEAM_TOKEN: None}
             with patch.object(rows, 'git_details', side_effect=RpcError('permission_denied')):
                 with self.assertRaises(RuntimeError): worker.sync(prefs.DEFAULTS)
-            self.assertEqual(writes[-1][1]['tokens'], {rows.TOKEN: None, rows.ICON_TOKEN: None, rows.BRANCH_TOKEN: None})
+            self.assertEqual(writes[-1][1]['tokens'], {rows.TOKEN: None, rows.ICON_TOKEN: None, rows.BRANCH_TOKEN: None, rows.TEAM_TOKEN: None})
 
     def test_restore_clears_placeholder(self):
         writes = []
@@ -158,7 +180,7 @@ class SpaceRowTests(unittest.TestCase):
             return {}
         with patch.object(installation, 'rpc', side_effect=rpc):
             installation.clear_metadata('socket')
-        self.assertIn({'workspace_id': 'w1', 'source': rows.SOURCE, 'tokens': {rows.TOKEN: None, rows.ICON_TOKEN: None, rows.BRANCH_TOKEN: None}}, writes)
+        self.assertIn({'workspace_id': 'w1', 'source': rows.SOURCE, 'tokens': {rows.TOKEN: None, rows.ICON_TOKEN: None, rows.BRANCH_TOKEN: None, rows.TEAM_TOKEN: None}}, writes)
 
     def test_local_git_comparison_unborn_missing_upstream_equal_ahead_and_detached(self):
         with tempfile.TemporaryDirectory() as root:
