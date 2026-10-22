@@ -12,7 +12,7 @@ import setup_claude
 import sidebar_settings as prefs
 from agent_info import CAPTURE_NAME, SOURCE as AGENT_SOURCE, TOKEN_NAMES, rpc
 from config_edit import owned_values, restore_owned
-from sidebar_state import GROUP_TOKENS, SOURCE as ANIMATION_SOURCE
+from sidebar_state import GROUP_SOURCE, GROUP_TOKENS, SOURCE as ANIMATION_SOURCE
 from space_colors import HUES, KEYS as COLOR_KEYS
 from space_rows import (
     BRANCH_TOKEN as ROWS_BRANCH_TOKEN,
@@ -310,7 +310,9 @@ def clear_metadata(endpoint):
     for agent in rpc(endpoint, 'agent.list')['agents']:
         pane_id = agent['pane_id']
         rpc(endpoint, 'pane.report_metadata',
-            {'pane_id': pane_id, 'source': ANIMATION_SOURCE, 'tokens': animation | grouping})
+            {'pane_id': pane_id, 'source': ANIMATION_SOURCE, 'tokens': animation})
+        rpc(endpoint, 'pane.report_metadata',
+            {'pane_id': pane_id, 'source': GROUP_SOURCE, 'tokens': grouping})
         rpc(endpoint, 'pane.report_metadata',
             {'pane_id': pane_id, 'source': AGENT_SOURCE, 'tokens': dict.fromkeys(TOKEN_NAMES)})
         fallback.clear(endpoint, pane_id)

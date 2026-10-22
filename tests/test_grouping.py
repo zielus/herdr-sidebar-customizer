@@ -32,7 +32,10 @@ class GroupingTests(unittest.TestCase):
         def rpc(endpoint, method, params=None):
             if method == 'agent.list': return {'agents': AGENTS}
             if method == 'workspace.list': return {'workspaces': SPACES}
-            if method == 'pane.report_metadata': writes[params['pane_id']] = params['tokens']
+            if method == 'pane.report_metadata':
+                # Herdr refuses a report that updates more than 16 tokens.
+                self.assertLessEqual(len(params['tokens']), 16)
+                writes.setdefault(params['pane_id'], {}).update(params['tokens'])
             return {}
         animator = state.Animator('test-socket')
         with patch.object(state, 'rpc', side_effect=rpc), \

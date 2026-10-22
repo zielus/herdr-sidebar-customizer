@@ -11,6 +11,8 @@ from agent_info import PLUGIN, RECOVERABLE, atomic_json, rpc, read_json, endpoin
 from filecache import file_stamp
 
 SOURCE = PLUGIN + ".animation"
+# Herdr takes at most 16 tokens per report, so grouping reports on its own.
+GROUP_SOURCE = PLUGIN + ".group"
 # Herdr colors the whole icon/name token, and an invisible marker after the
 # glyph selects the shade, so the name stays steady while the glyph animates.
 SHADE_MARKERS = {'dark': '', 'medium': '\u2063', 'light': '\u2063\u2063'}
@@ -162,22 +164,29 @@ class Animator:
                     indent = INDENT if grouped and not position[0] else ''
                     values = label_tokens(status, now, agent_row_name(item, name, settings), color,
                                           settings, show_name=show, indent=indent)
-                    values |= group_tokens(item, name, color, position, settings)
+                    group_key = (kind, item[id_key], 'group')
+                    current.add(group_key)
+                    self.report(group_key, id_key, GROUP_SOURCE,
+                                group_tokens(item, name, color, position, settings), now)
                 else:
                     values = label_tokens(status, now, name, color, settings)
-                previous = self.previous.get(key)
-                if previous and previous[0] == values and now-previous[1] < RENEW_SECONDS:
-                    continue
-                rpc(self.endpoint, kind + ".report_metadata", {
-                    id_key: item[id_key], "source": SOURCE,
-                    "tokens": values})
-                self.previous[key] = (values, now)
+                self.report(key, id_key, SOURCE, values, now)
         # Herdr discards metadata with closed panes/workspaces.
         self.previous = {k:v for k,v in self.previous.items() if k in current}
         result = {"agents": len(agents), "spaces": len(workspaces), "working": working}
         if self.settings.error:
             result['settings_error'] = self.settings.error
         return result
+
+    def report(self, key, id_key, source, values, now):
+        """Publish changed values, and unchanged ones again before they go stale."""
+        previous = self.previous.get(key)
+        if previous and previous[0] == values and now-previous[1] < RENEW_SECONDS:
+            return
+        rpc(self.endpoint, key[0] + ".report_metadata", {
+            id_key: key[1], "source": source,
+            "tokens": values})
+        self.previous[key] = (values, now)
 
 
 def run(endpoint, directory, stop):

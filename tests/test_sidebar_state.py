@@ -84,7 +84,8 @@ class SidebarStateTests(unittest.TestCase):
             self.assertIsNone(pane['tokens']['space_red'])
             self.assertEqual(pane['tokens']['space_blue'],'●'+state.shade_marker('dark')+' Two')
             writes.clear();animator.tick(7)
-            self.assertEqual(len(writes),4)
+            # Grouping reports separately; these are the name tokens' renewals.
+            self.assertEqual(len([p for _,p in writes if p['source']==state.SOURCE]),4)
             self.assertTrue(all('agent_status' not in p and 'ttl_ms' not in p for _,p in writes))
             agents.pop();animator.tick(8)
             self.assertNotIn(('pane','p2'),animator.previous)
