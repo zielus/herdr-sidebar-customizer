@@ -171,6 +171,29 @@ class CollectorBridgeTests(IsolatedTestCase):
         self.assertEqual(first_row(prefs.DEFAULTS), "tab")
         self.assertEqual(first_row(prefs.DEFAULTS | {"show_work": True}), "$agent_work")
 
+    def test_a_plain_agent_without_work_keeps_its_tab_name_an_openrig_seat_does_not(self):
+        from unittest.mock import patch
+        import fallback
+        collector = self.collector({"show_work": True})
+        collector.openrig = openrig.Bridge("sock", Mock(return_value=tile("dev-build@boxbox")),
+                                           fetch=daemon(), url=openrig.DEFAULT_URL)
+        collector.discover = lambda wanted: None
+        agents = [{"pane_id": "w1:p5", "agent": "claude", "tab_id": "w1:t1"},
+                  {"pane_id": "w2:p1", "agent": "hermes", "tab_id": "w2:t1"},
+                  {"pane_id": "w3:p1", "agent": "codex", "tab_id": "w3:t1",
+                   "agent_session": {"kind": "id", "value": "t-none"}}]
+        tabs = [{"tab_id": "w1:t1", "label": "openrig:rig:boxbox#1"}, {"tab_id": "w3:t1", "label": "Fix login"}]
+        calls = []
+        def rpc(endpoint, method, params=None):
+            calls.append((method, params))
+            return {"agents": agents} if method == "agent.list" else {"tabs": tabs} if method == "tab.list" else {}
+        with patch.object(info, "rpc", rpc), patch.object(fallback, "rpc", rpc):
+            collector.sync()
+        reports = {p["pane_id"]: p["tokens"] for m, p in calls
+                   if m == "pane.report_metadata" and p.get("source") == info.SOURCE}
+        self.assertIsNone(reports["w1:p5"]["agent_work"])
+        self.assertEqual(reports["w3:p1"]["agent_work"], "Fix login")
+
     def test_without_detail_collection_the_daemon_is_never_asked(self):
         collector = self.collector({"collect_details": False})
         collector.openrig = Mock()

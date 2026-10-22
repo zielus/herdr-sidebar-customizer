@@ -443,6 +443,7 @@ class Collector:
         import openrig
         self.openrig = openrig.Bridge(endpoint, rpc)
         self.openrig_context, self.openrig_nodes = {}, {}
+        self.tab_labels = {}
         codex_home = Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex")))
         from filecache import StampCache
         self.codex_titles = StampCache(codex_home / "session_index.jsonl", thread_names, {})
@@ -465,6 +466,7 @@ class Collector:
         tally = Tally()
         for agent in rejected:
             count(tally.unreadable_session, agent["agent"])
+        self.tab_labels = self.read_tab_labels(settings)
         self.report_unsessioned(unsessioned, settings, integrations, tally)
         self.report_sessioned(sessioned, settings, hook, tally)
         self.clear_stale(agents, set(tally.reported))
@@ -572,6 +574,7 @@ class Collector:
                 values = dict.fromkeys(TOKEN_NAMES)
                 values["agent_info"] = detail_hints.with_hint(agent_label({}, kind, settings),
                                                               detail_hints.session_hint(kind, integrations))
+                values["agent_work"] = self.tab_fallback(agent)
                 self.report(pane, values)
                 tally.reported[pane] = values
 
@@ -582,6 +585,7 @@ class Collector:
         for agent, ref in sessioned:
             kind, pane = agent["agent"], agent["pane_id"]
             values = self.describe(kind, ref, pane, settings, tally)
+            values["agent_work"] = values["agent_work"] or self.tab_fallback(agent)
             if kind == "claude" and not values["context"]:
                 tally.missing_context += 1
                 if context_hint:
@@ -590,6 +594,20 @@ class Collector:
             tally.reported[pane] = values
             tally.models += bool(values["model"])
             tally.contexts += bool(values["context"])
+
+    def read_tab_labels(self, settings):
+        """{tab: label}, read only while agents' work stands in for their tab's name."""
+        if not settings["show_work"]:
+            return {}
+        tabs = rpc(self.endpoint, "tab.list").get("tabs") or []
+        return {tab["tab_id"]: tab["label"] for tab in tabs
+                if isinstance(tab, dict) and isinstance(tab.get("label"), str)}
+
+    def tab_fallback(self, agent):
+        """A plain agent with no known work keeps its tab's name; an OpenRig seat's says nothing."""
+        if agent["pane_id"] in self.openrig_nodes:
+            return None
+        return text(self.tab_labels.get(agent.get("tab_id"))) or None
 
     def describe(self, kind, ref, pane, settings, tally):
         """Tokens for one agent; a malformed session source blanks only its own pane."""
